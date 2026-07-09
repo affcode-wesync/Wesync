@@ -29,6 +29,10 @@ const roomManager = new RoomManager();
 
 setupSocketHandlers(io, roomManager);
 
+app.get("/", (_req, res) => {
+  res.json({ name: "WeSync API", status: "running" });
+});
+
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", rooms: roomManager.getAllRooms().length });
 });

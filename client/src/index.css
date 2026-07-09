@@ -45,3 +45,21 @@ body {
 .animate-in {
   animation: slide-in-from-right 0.3s ease-out;
 }
+
+/* Mobile tweaks */
+@media (max-width: 767px) {
+  ::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  .chat-input-mobile {
+    font-size: 16px;
+  }
+}
+
+/* Safe area for notched phones */
+@supports (padding: env(safe-area-inset-bottom)) {
+  body {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}

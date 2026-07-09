@@ -20,6 +20,7 @@ export const Watch: React.FC = () => {
   });
   const [copied, setCopied] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showChat, setShowChat] = useState(false);
   const fullscreenContainerRef = useRef<HTMLDivElement>(null);
 
   const {
@@ -112,9 +113,7 @@ export const Watch: React.FC = () => {
           await el.requestFullscreen();
           setIsFullscreen(true);
         }
-      } catch (err) {
-        console.error("Fullscreen failed:", err);
-      }
+      } catch {}
     } else {
       try {
         if (document.fullscreenElement) {
@@ -126,9 +125,7 @@ export const Watch: React.FC = () => {
   }, [isFullscreen]);
 
   useEffect(() => {
-    const handler = () => {
-      setIsFullscreen(!!document.fullscreenElement);
-    };
+    const handler = () => setIsFullscreen(!!document.fullscreenElement);
     document.addEventListener("fullscreenchange", handler);
     return () => document.removeEventListener("fullscreenchange", handler);
   }, []);
@@ -146,7 +143,7 @@ export const Watch: React.FC = () => {
 
   const playerContent = (
     <>
-      <div className="mb-4 relative">
+      <div className="mb-3 md:mb-4 relative">
         <VideoInput onLoadVideo={handleLoadVideo} />
         {copied && (
           <div className="absolute -top-8 right-0 px-3 py-1 bg-green-600 text-white text-xs rounded-lg">
@@ -162,7 +159,7 @@ export const Watch: React.FC = () => {
           onSeek={handleSeek}
         />
       </ResizablePlayer>
-      <div className="mt-4 flex items-center justify-between">
+      <div className="mt-3 md:mt-4 flex items-center justify-between">
         <VoiceChat isMuted={isMuted} onToggleMute={toggleMute} />
         <div className="text-gray-500 text-sm">
           {videoState.isPlaying ? "▶ Воспроизведение" : "⏸ Пауза"}
@@ -173,10 +170,8 @@ export const Watch: React.FC = () => {
 
   if (isFullscreen) {
     return (
-      <div ref={fullscreenContainerRef} className="h-screen w-screen bg-dark-900 flex items-center justify-center p-6">
-        <div className="w-full max-w-7xl">
-          {playerContent}
-        </div>
+      <div ref={fullscreenContainerRef} className="h-screen w-screen bg-dark-900 flex items-center justify-center p-4 md:p-6">
+        <div className="w-full max-w-7xl">{playerContent}</div>
       </div>
     );
   }
@@ -190,26 +185,52 @@ export const Watch: React.FC = () => {
         onLeave={handleLeave}
       />
 
+      {/* Mobile: toggle chat */}
+      <div className="md:hidden flex border-b border-dark-600 bg-dark-800">
+        <button
+          onClick={() => setShowChat(false)}
+          className={`flex-1 py-2 text-sm font-medium transition-colors ${!showChat ? "text-white border-b-2 border-accent" : "text-gray-400"}`}
+        >
+          Видео
+        </button>
+        <button
+          onClick={() => setShowChat(true)}
+          className={`flex-1 py-2 text-sm font-medium transition-colors ${showChat ? "text-white border-b-2 border-accent" : "text-gray-400"}`}
+        >
+          Чат ({chat.length})
+        </button>
+      </div>
+
       <div className="flex-1 flex overflow-hidden">
-        {/* Left: Chat */}
-        <div className="w-80 border-r border-dark-600 flex flex-col bg-dark-800">
-          <Participants
-            participants={participants}
-            leaderId={leaderId}
-            myParticipantId={myParticipantId}
-            speakingMap={speakingMap}
-          />
+        {/* Chat sidebar - desktop always, mobile toggle */}
+        <div className={`${showChat ? "flex" : "hidden"} md:flex w-full md:w-80 border-r border-dark-600 flex-col bg-dark-800 absolute md:relative inset-0 z-20 md:z-0`}>
+          <div className="hidden md:block">
+            <Participants
+              participants={participants}
+              leaderId={leaderId}
+              myParticipantId={myParticipantId}
+              speakingMap={speakingMap}
+            />
+          </div>
           <div className="flex-1 overflow-hidden">
             <Chat messages={chat} onSend={sendMessage} onSendImage={sendImage} myNickname={nickname} />
           </div>
         </div>
 
-        {/* Right: Video + Controls */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <div className="flex-1 flex items-center justify-center p-6 overflow-auto" ref={fullscreenContainerRef}>
-            <div className="w-full max-w-5xl">
-              {playerContent}
-            </div>
+        {/* Video + Controls */}
+        <div className={`${!showChat ? "flex" : "hidden"} md:flex flex-1 flex-col overflow-hidden`}>
+          {/* Desktop participants */}
+          <div className="hidden md:block">
+            <Participants
+              participants={participants}
+              leaderId={leaderId}
+              myParticipantId={myParticipantId}
+              speakingMap={speakingMap}
+            />
+          </div>
+
+          <div className="flex-1 flex items-center justify-center p-3 md:p-6 overflow-auto" ref={fullscreenContainerRef}>
+            <div className="w-full max-w-5xl">{playerContent}</div>
           </div>
         </div>
       </div>

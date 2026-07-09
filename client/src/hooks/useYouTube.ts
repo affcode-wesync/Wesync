@@ -16,74 +16,79 @@ export function useYouTube({
   onSeek,
   onStateChange,
 }: UseYouTubeProps) {
-  const playerRef = useRef<InstanceType<typeof window.YT.Player> | null>(null);
+  const playerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const isRemoteUpdate = useRef(false);
   const lastState = useRef<number>(-1);
   const [playerReady, setPlayerReady] = useState(false);
+  const callbacksRef = useRef({ onPlay, onPause, onSeek, onStateChange });
+  callbacksRef.current = { onPlay, onPause, onSeek, onStateChange };
 
   useEffect(() => {
-    if (window.YT && window.YT.Player) return;
+    if (window.YT && window.YT.Player) {
+      initPlayer();
+      return;
+    }
 
     const tag = document.createElement("script");
     tag.src = "https://www.youtube.com/iframe_api";
+
+    window.onYouTubeIframeAPIReady = () => {
+      initPlayer();
+    };
+
     document.head.appendChild(tag);
 
     return () => {
-      document.head.removeChild(tag);
+      window.onYouTubeIframeAPIReady = () => {};
+      if (playerRef.current) {
+        try { playerRef.current.destroy(); } catch {}
+        playerRef.current = null;
+      }
     };
   }, []);
 
-  useEffect(() => {
+  function initPlayer() {
     if (!containerRef.current || playerRef.current) return;
 
-    const checkReady = () => {
-      if (!window.YT || !window.YT.Player) {
-        setTimeout(checkReady, 100);
-        return;
-      }
-
-      playerRef.current = new window.YT.Player(containerRef.current!, {
-        videoId: videoState.videoId || undefined,
-        playerVars: {
-          autoplay: 0,
-          controls: 1,
-          modestbranding: 1,
-          rel: 0,
-          fs: 0,
-          iv_load_policy: 3,
-          disablekb: 1,
+    playerRef.current = new window.YT.Player(containerRef.current, {
+      videoId: undefined,
+      playerVars: {
+        autoplay: 0,
+        controls: 1,
+        modestbranding: 1,
+        rel: 0,
+        fs: 0,
+        iv_load_policy: 3,
+      },
+      events: {
+        onReady: () => {
+          setPlayerReady(true);
         },
-        events: {
-          onReady: () => {
-            setPlayerReady(true);
-          },
-          onStateChange: (event) => {
-            const player = event.target;
-            const state = player.getPlayerState();
-            const currentTime = player.getCurrentTime();
+        onStateChange: (event: any) => {
+          const player = event.target;
+          const state = player.getPlayerState();
+          const currentTime = player.getCurrentTime();
+          const cb = callbacksRef.current;
 
-            if (isRemoteUpdate.current) {
-              isRemoteUpdate.current = false;
-              lastState.current = state;
-              return;
-            }
-
-            if (state === window.YT.PlayerState.PLAYING && lastState.current !== window.YT.PlayerState.PLAYING) {
-              onPlay(currentTime);
-            } else if (state === window.YT.PlayerState.PAUSED && lastState.current === window.YT.PlayerState.PLAYING) {
-              onPause(currentTime);
-            }
-
+          if (isRemoteUpdate.current) {
+            isRemoteUpdate.current = false;
             lastState.current = state;
-            onStateChange?.();
-          },
-        },
-      });
-    };
+            return;
+          }
 
-    checkReady();
-  }, []);
+          if (state === window.YT.PlayerState.PLAYING && lastState.current !== window.YT.PlayerState.PLAYING) {
+            cb.onPlay(currentTime);
+          } else if (state === window.YT.PlayerState.PAUSED && lastState.current === window.YT.PlayerState.PLAYING) {
+            cb.onPause(currentTime);
+          }
+
+          lastState.current = state;
+          cb.onStateChange?.();
+        },
+      },
+    });
+  }
 
   useEffect(() => {
     const player = playerRef.current;

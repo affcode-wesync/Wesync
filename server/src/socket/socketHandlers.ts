@@ -31,7 +31,7 @@ export function setupSocketHandlers(io: TypedServer, roomManager: RoomManager): 
       currentRoomId = roomId;
       currentNickname = nickname;
 
-      const { room, participant } = roomManager.joinRoom(roomId, nickname);
+      const { room, participant } = roomManager.joinRoom(roomId, nickname, socket.id);
       currentParticipantId = participant.id;
       socket.join(roomId);
 

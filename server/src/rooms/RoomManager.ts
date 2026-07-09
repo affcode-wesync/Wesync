@@ -29,11 +29,11 @@ export class RoomManager {
     return this.rooms.get(roomId);
   }
 
-  joinRoom(roomId: string, nickname: string): { room: Room; participant: Participant } {
+  joinRoom(roomId: string, nickname: string, participantId: string): { room: Room; participant: Participant } {
     const room = this.getOrCreateRoom(roomId);
 
     const participant: Participant = {
-      id: generateId(),
+      id: participantId,
       nickname,
       isSpeaking: false,
       isMuted: false,

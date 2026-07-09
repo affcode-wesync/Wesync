@@ -88,10 +88,6 @@ export function useSocket(): UseSocketReturn {
       setChat((prev) => [...prev, message]);
     });
 
-    socket.on("sync-state", (state) => {
-      setVideoState(state);
-    });
-
     socket.on("notification", ({ text, type }) => {
       addNotification(text, type);
     });

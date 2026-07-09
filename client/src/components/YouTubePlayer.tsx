@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useImperativeHandle, forwardRef } from "react";
+import React, { useEffect, useRef, useImperativeHandle, forwardRef, useCallback } from "react";
 import { VideoState } from "../types";
 
 interface YouTubePlayerProps {
@@ -10,9 +10,7 @@ interface YouTubePlayerProps {
 }
 
 export interface YouTubePlayerHandle {
-  play: () => void;
-  pause: () => void;
-  seekTo: (seconds: number) => void;
+  syncFromServer: (state: VideoState) => void;
 }
 
 function isValidVideoId(id: string): boolean {
@@ -33,39 +31,36 @@ function getEmbedUrl(videoId: string, startTime: number): string {
   return `https://www.youtube.com/embed/${videoId}?${params.toString()}`;
 }
 
-function sendCommand(iframe: HTMLIFrameElement, func: string, args: any[] = []) {
-  iframe.contentWindow?.postMessage(
-    JSON.stringify({ event: "command", func, args }),
-    "*"
-  );
+function sendPostMessage(iframe: HTMLIFrameElement, func: string, args: any[] = []) {
+  try {
+    iframe.contentWindow?.postMessage(
+      JSON.stringify({ event: "command", func, args }),
+      "*"
+    );
+  } catch {}
 }
 
 export const YouTubePlayer = forwardRef<YouTubePlayerHandle, YouTubePlayerProps>(
   ({ videoState, onPlay, onPause, onSeek, onStateChange }, ref) => {
     const iframeRef = useRef<HTMLIFrameElement>(null);
     const lastState = useRef<string>("");
-    const isRemoteCommand = useRef(false);
+    const ignoreNext = useRef(false);
+    const readyRef = useRef(false);
 
-    useImperativeHandle(ref, () => ({
-      play: () => {
-        const iframe = iframeRef.current;
-        if (!iframe) return;
-        isRemoteCommand.current = true;
-        sendCommand(iframe, "playVideo");
-      },
-      pause: () => {
-        const iframe = iframeRef.current;
-        if (!iframe) return;
-        isRemoteCommand.current = true;
-        sendCommand(iframe, "pauseVideo");
-      },
-      seekTo: (seconds: number) => {
-        const iframe = iframeRef.current;
-        if (!iframe) return;
-        isRemoteCommand.current = true;
-        sendCommand(iframe, "seekTo", [seconds, true]);
-      },
-    }));
+    const syncFromServer = useCallback((state: VideoState) => {
+      const iframe = iframeRef.current;
+      if (!iframe || !readyRef.current) return;
+
+      ignoreNext.current = true;
+
+      if (state.isPlaying) {
+        sendPostMessage(iframe, "playVideo");
+      } else {
+        sendPostMessage(iframe, "pauseVideo");
+      }
+    }, []);
+
+    useImperativeHandle(ref, () => ({ syncFromServer }));
 
     useEffect(() => {
       const handler = (e: MessageEvent) => {
@@ -76,8 +71,8 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, YouTubePlayerProps>
             const state = data.info.playerState;
             const currentTime = data.info.currentTime || 0;
 
-            if (isRemoteCommand.current) {
-              isRemoteCommand.current = false;
+            if (ignoreNext.current) {
+              ignoreNext.current = false;
               lastState.current = String(state);
               return;
             }
@@ -98,25 +93,9 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, YouTubePlayerProps>
       return () => window.removeEventListener("message", handler);
     }, [onPlay, onPause, onSeek, onStateChange]);
 
-    useEffect(() => {
-      const iframe = iframeRef.current;
-      if (!iframe) return;
-
-      isRemoteCommand.current = true;
-      if (videoState.isPlaying) {
-        sendCommand(iframe, "playVideo");
-      } else {
-        sendCommand(iframe, "pauseVideo");
-      }
-    }, [videoState.isPlaying]);
-
-    useEffect(() => {
-      const iframe = iframeRef.current;
-      if (!iframe || videoState.currentTime <= 0) return;
-
-      isRemoteCommand.current = true;
-      sendCommand(iframe, "seekTo", [videoState.currentTime, true]);
-    }, [videoState.currentTime]);
+    const handleLoad = useCallback(() => {
+      readyRef.current = true;
+    }, []);
 
     const embedUrl = isValidVideoId(videoState.videoId)
       ? getEmbedUrl(videoState.videoId, videoState.currentTime)
@@ -148,6 +127,7 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, YouTubePlayerProps>
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
           allowFullScreen
           title="YouTube Player"
+          onLoad={handleLoad}
         />
       </div>
     );

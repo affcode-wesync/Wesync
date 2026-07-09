@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useSocket } from "../hooks/useSocket";
 import { useVoiceChat } from "../hooks/useVoiceChat";
-import { YouTubePlayer, YouTubePlayerHandle } from "../components/YouTubePlayer";
+import { YouTubePlayer } from "../components/YouTubePlayer";
 import { ResizablePlayer } from "../components/ResizablePlayer";
 import { VideoInput } from "../components/VideoInput";
 import { Chat } from "../components/Chat";
@@ -21,7 +21,6 @@ export const Watch: React.FC = () => {
   const [copied, setCopied] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const fullscreenContainerRef = useRef<HTMLDivElement>(null);
-  const playerRef = useRef<YouTubePlayerHandle>(null);
   const [chatHeight, setChatHeight] = useState(35);
   const chatDragRef = useRef<{ startY: number; startH: number } | null>(null);
 
@@ -59,6 +58,15 @@ export const Watch: React.FC = () => {
       joinRoom(roomId, nickname);
     }
   }, [nickname, roomId, connected, joinRoom]);
+
+  useEffect(() => {
+    if (!socket) return;
+    const handler = (state: any) => {
+      setVideoState(state);
+    };
+    socket.on("sync-state", handler);
+    return () => { socket.off("sync-state", handler); };
+  }, [socket, setVideoState]);
 
   const handleCopyLink = useCallback(() => {
     const url = `${window.location.origin}/watch/${roomId}`;
@@ -114,17 +122,6 @@ export const Watch: React.FC = () => {
     },
     [isLeader, sendSeek, setVideoState]
   );
-
-  useEffect(() => {
-    if (socket) {
-      const handler = (state: any) => {
-        setVideoState(state);
-        playerRef.current?.syncFromServer(state);
-      };
-      socket.on("sync-state", handler);
-      return () => { socket.off("sync-state", handler); };
-    }
-  }, [socket, setVideoState]);
 
   const toggleFullscreen = useCallback(async () => {
     if (!isFullscreen) {
@@ -193,7 +190,6 @@ export const Watch: React.FC = () => {
       )}
       <ResizablePlayer onFullscreen={toggleFullscreen}>
         <YouTubePlayer
-          ref={playerRef}
           videoState={videoState}
           onPlay={handlePlay}
           onPause={handlePause}

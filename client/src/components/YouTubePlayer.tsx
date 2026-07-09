@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useImperativeHandle, forwardRef, useCallback } from "react";
+import React, { useEffect, useRef, useCallback } from "react";
 import { VideoState } from "../types";
 
 interface YouTubePlayerProps {
@@ -7,10 +7,6 @@ interface YouTubePlayerProps {
   onPause: (currentTime: number) => void;
   onSeek: (currentTime: number) => void;
   onStateChange?: () => void;
-}
-
-export interface YouTubePlayerHandle {
-  syncFromServer: (state: VideoState) => void;
 }
 
 function isValidVideoId(id: string): boolean {
@@ -31,7 +27,7 @@ function getEmbedUrl(videoId: string, startTime: number): string {
   return `https://www.youtube.com/embed/${videoId}?${params.toString()}`;
 }
 
-function sendPostMessage(iframe: HTMLIFrameElement, func: string, args: any[] = []) {
+function sendPost(iframe: HTMLIFrameElement, func: string, args: any[] = []) {
   try {
     iframe.contentWindow?.postMessage(
       JSON.stringify({ event: "command", func, args }),
@@ -40,98 +36,118 @@ function sendPostMessage(iframe: HTMLIFrameElement, func: string, args: any[] = 
   } catch {}
 }
 
-export const YouTubePlayer = forwardRef<YouTubePlayerHandle, YouTubePlayerProps>(
-  ({ videoState, onPlay, onPause, onSeek, onStateChange }, ref) => {
-    const iframeRef = useRef<HTMLIFrameElement>(null);
-    const lastState = useRef<string>("");
-    const ignoreNext = useRef(false);
-    const readyRef = useRef(false);
+export const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
+  videoState,
+  onPlay,
+  onPause,
+  onSeek,
+  onStateChange,
+}) => {
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const readyRef = useRef(false);
+  const ignoreNext = useRef(false);
+  const lastState = useRef<string>("");
+  const pendingRef = useRef<{ isPlaying: boolean } | null>(null);
 
-    const syncFromServer = useCallback((state: VideoState) => {
+  useEffect(() => {
+    const handler = (e: MessageEvent) => {
+      if (typeof e.data !== "string") return;
+      try {
+        const data = JSON.parse(e.data);
+        if (data.event === "infoDelivery" && data.info?.playerState !== undefined) {
+          const state = data.info.playerState;
+          const currentTime = data.info.currentTime || 0;
+
+          if (ignoreNext.current) {
+            ignoreNext.current = false;
+            lastState.current = String(state);
+            return;
+          }
+
+          if (state === 1 && lastState.current !== "1") {
+            onPlay(currentTime);
+          } else if (state === 2 && lastState.current === "1") {
+            onPause(currentTime);
+          }
+
+          lastState.current = String(state);
+          onStateChange?.();
+        }
+      } catch {}
+    };
+
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, [onPlay, onPause, onSeek, onStateChange]);
+
+  const applyPending = useCallback(() => {
+    const iframe = iframeRef.current;
+    const pending = pendingRef.current;
+    if (!iframe || !pending) return;
+
+    ignoreNext.current = true;
+    if (pending.isPlaying) {
+      sendPost(iframe, "playVideo");
+    } else {
+      sendPost(iframe, "pauseVideo");
+    }
+    pendingRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    if (readyRef.current) {
       const iframe = iframeRef.current;
-      if (!iframe || !readyRef.current) return;
+      if (!iframe) return;
 
       ignoreNext.current = true;
-
-      if (state.isPlaying) {
-        sendPostMessage(iframe, "playVideo");
+      if (videoState.isPlaying) {
+        sendPost(iframe, "playVideo");
       } else {
-        sendPostMessage(iframe, "pauseVideo");
+        sendPost(iframe, "pauseVideo");
       }
-    }, []);
-
-    useImperativeHandle(ref, () => ({ syncFromServer }));
-
-    useEffect(() => {
-      const handler = (e: MessageEvent) => {
-        if (typeof e.data !== "string") return;
-        try {
-          const data = JSON.parse(e.data);
-          if (data.event === "infoDelivery" && data.info?.playerState !== undefined) {
-            const state = data.info.playerState;
-            const currentTime = data.info.currentTime || 0;
-
-            if (ignoreNext.current) {
-              ignoreNext.current = false;
-              lastState.current = String(state);
-              return;
-            }
-
-            if (state === 1 && lastState.current !== "1") {
-              onPlay(currentTime);
-            } else if (state === 2 && lastState.current === "1") {
-              onPause(currentTime);
-            }
-
-            lastState.current = String(state);
-            onStateChange?.();
-          }
-        } catch {}
-      };
-
-      window.addEventListener("message", handler);
-      return () => window.removeEventListener("message", handler);
-    }, [onPlay, onPause, onSeek, onStateChange]);
-
-    const handleLoad = useCallback(() => {
-      readyRef.current = true;
-    }, []);
-
-    const embedUrl = isValidVideoId(videoState.videoId)
-      ? getEmbedUrl(videoState.videoId, videoState.currentTime)
-      : "";
-
-    if (!isValidVideoId(videoState.videoId)) {
-      return (
-        <div className="relative w-full bg-black rounded-xl overflow-hidden" style={{ aspectRatio: "16/9" }}>
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="text-center text-gray-400">
-              <svg className="w-16 h-16 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <p className="text-lg font-medium">Нет видео</p>
-              <p className="text-sm mt-1">Вставьте ссылку на YouTube выше</p>
-            </div>
-          </div>
-        </div>
-      );
+      pendingRef.current = null;
+    } else {
+      pendingRef.current = { isPlaying: videoState.isPlaying };
     }
+  }, [videoState.isPlaying]);
 
+  const handleLoad = useCallback(() => {
+    readyRef.current = true;
+    applyPending();
+  }, [applyPending]);
+
+  const embedUrl = isValidVideoId(videoState.videoId)
+    ? getEmbedUrl(videoState.videoId, videoState.currentTime)
+    : "";
+
+  if (!isValidVideoId(videoState.videoId)) {
     return (
       <div className="relative w-full bg-black rounded-xl overflow-hidden" style={{ aspectRatio: "16/9" }}>
-        <iframe
-          ref={iframeRef}
-          src={embedUrl}
-          className="absolute inset-0 w-full h-full"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-          allowFullScreen
-          title="YouTube Player"
-          onLoad={handleLoad}
-        />
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="text-center text-gray-400">
+            <svg className="w-16 h-16 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <p className="text-lg font-medium">Нет видео</p>
+            <p className="text-sm mt-1">Вставьте ссылку на YouTube выше</p>
+          </div>
+        </div>
       </div>
     );
   }
-);
 
-YouTubePlayer.displayName = "YouTubePlayer";
+  return (
+    <div className="relative w-full bg-black rounded-xl overflow-hidden" style={{ aspectRatio: "16/9" }}>
+      <iframe
+        ref={iframeRef}
+        src={embedUrl}
+        className="absolute inset-0 w-full h-full"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowFullScreen
+        title="YouTube Player"
+        onLoad={handleLoad}
+      />
+    </div>
+  );
+};

@@ -71,8 +71,6 @@ export const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
             controls: 1,
             modestbranding: 1,
             rel: 0,
-            fs: 0,
-            iv_load_policy: 3,
           },
           events: {
             onReady: () => {

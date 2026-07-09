@@ -9,118 +9,103 @@ interface YouTubePlayerProps {
   onStateChange?: () => void;
 }
 
-function isValidVideoId(id: string): boolean {
-  return /^[a-zA-Z0-9_-]{11}$/.test(id);
-}
+let apiPromise: Promise<void> | null = null;
 
-function getEmbedUrl(videoId: string, startTime: number): string {
-  const params = new URLSearchParams({
-    autoplay: "0",
-    controls: "1",
-    modestbranding: "1",
-    rel: "0",
-    enablejsapi: "1",
+function loadAPI(): Promise<void> {
+  if (apiPromise) return apiPromise;
+  apiPromise = new Promise<void>((resolve) => {
+    if (window.YT?.Player) { resolve(); return; }
+    window.onYouTubeIframeAPIReady = () => resolve();
+    const s = document.createElement("script");
+    s.src = "https://www.youtube.com/iframe_api";
+    document.head.appendChild(s);
   });
-  if (startTime > 0) {
-    params.set("start", Math.floor(startTime).toString());
-  }
-  return `https://www.youtube.com/embed/${videoId}?${params.toString()}`;
+  return apiPromise;
 }
 
-function sendPost(iframe: HTMLIFrameElement, func: string, args: any[] = []) {
-  try {
-    iframe.contentWindow?.postMessage(
-      JSON.stringify({ event: "command", func, args }),
-      "*"
-    );
-  } catch {}
-}
+function valid(id: string) { return /^[a-zA-Z0-9_-]{11}$/.test(id); }
 
 export const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
-  videoState,
-  onPlay,
-  onPause,
-  onSeek,
-  onStateChange,
+  videoState, onPlay, onPause, onSeek, onStateChange,
 }) => {
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-  const readyRef = useRef(false);
-  const ignoreNext = useRef(false);
-  const lastState = useRef<string>("");
-  const pendingRef = useRef<{ isPlaying: boolean } | null>(null);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const playerRef = useRef<any>(null);
+  const ignoreRef = useRef(false);
+  const lastState = useRef(-1);
+  const cbRef = useRef({ onPlay, onPause, onSeek, onStateChange });
+  cbRef.current = { onPlay, onPause, onSeek, onStateChange };
 
   useEffect(() => {
-    const handler = (e: MessageEvent) => {
-      if (typeof e.data !== "string") return;
+    let dead = false;
+    (async () => {
+      await loadAPI();
+      if (dead || !boxRef.current || playerRef.current) return;
       try {
-        const data = JSON.parse(e.data);
-        if (data.event === "infoDelivery" && data.info?.playerState !== undefined) {
-          const state = data.info.playerState;
-          const currentTime = data.info.currentTime || 0;
-
-          if (ignoreNext.current) {
-            ignoreNext.current = false;
-            lastState.current = String(state);
-            return;
-          }
-
-          if (state === 1 && lastState.current !== "1") {
-            onPlay(currentTime);
-          } else if (state === 2 && lastState.current === "1") {
-            onPause(currentTime);
-          }
-
-          lastState.current = String(state);
-          onStateChange?.();
-        }
+        playerRef.current = new window.YT.Player(boxRef.current, {
+          playerVars: { autoplay: 0, controls: 1, modestbranding: 1, rel: 0 },
+          events: {
+            onStateChange: (e: any) => {
+              const s = e.target.getPlayerState();
+              const t = e.target.getCurrentTime();
+              const cb = cbRef.current;
+              if (ignoreRef.current) { ignoreRef.current = false; lastState.current = s; return; }
+              if (s === 1 && lastState.current !== 1) cb.onPlay(t);
+              else if (s === 2 && lastState.current === 1) cb.onPause(t);
+              lastState.current = s;
+              cb.onStateChange?.();
+            },
+          },
+        });
       } catch {}
+    })();
+    return () => {
+      dead = true;
+      if (playerRef.current) { try { playerRef.current.destroy(); } catch {} playerRef.current = null; }
     };
-
-    window.addEventListener("message", handler);
-    return () => window.removeEventListener("message", handler);
-  }, [onPlay, onPause, onSeek, onStateChange]);
-
-  const applyPending = useCallback(() => {
-    const iframe = iframeRef.current;
-    const pending = pendingRef.current;
-    if (!iframe || !pending) return;
-
-    ignoreNext.current = true;
-    if (pending.isPlaying) {
-      sendPost(iframe, "playVideo");
-    } else {
-      sendPost(iframe, "pauseVideo");
-    }
-    pendingRef.current = null;
   }, []);
 
   useEffect(() => {
-    if (readyRef.current) {
-      const iframe = iframeRef.current;
-      if (!iframe) return;
-
-      ignoreNext.current = true;
-      if (videoState.isPlaying) {
-        sendPost(iframe, "playVideo");
-      } else {
-        sendPost(iframe, "pauseVideo");
-      }
-      pendingRef.current = null;
-    } else {
-      pendingRef.current = { isPlaying: videoState.isPlaying };
+    const p = playerRef.current;
+    if (!p?.loadVideoById) return;
+    if (valid(videoState.videoId)) {
+      try {
+        const cur = p.getVideoData?.()?.video_id || "";
+        if (videoState.videoId !== cur) {
+          ignoreRef.current = true;
+          p.loadVideoById(videoState.videoId);
+        }
+      } catch {}
     }
+  }, [videoState.videoId]);
+
+  useEffect(() => {
+    const p = playerRef.current;
+    if (!p?.getPlayerState) return;
+    try {
+      const s = p.getPlayerState();
+      if (videoState.isPlaying && s !== 1) {
+        ignoreRef.current = true;
+        p.playVideo();
+      } else if (!videoState.isPlaying && s === 1) {
+        ignoreRef.current = true;
+        p.pauseVideo();
+      }
+    } catch {}
   }, [videoState.isPlaying]);
 
-  const handleLoad = useCallback(() => {
-    readyRef.current = true;
-    applyPending();
-  }, [applyPending]);
+  useEffect(() => {
+    const p = playerRef.current;
+    if (!p?.getCurrentTime) return;
+    try {
+      const diff = Math.abs(p.getCurrentTime() - videoState.currentTime);
+      if (diff > 2) {
+        ignoreRef.current = true;
+        p.seekTo(videoState.currentTime, true);
+      }
+    } catch {}
+  }, [videoState.currentTime]);
 
-  const embedUrl = isValidVideoId(videoState.videoId)
-    ? getEmbedUrl(videoState.videoId, videoState.currentTime)
-    : "";
-
-  if (!isValidVideoId(videoState.videoId)) {
+  if (!valid(videoState.videoId)) {
     return (
       <div className="relative w-full bg-black rounded-xl overflow-hidden" style={{ aspectRatio: "16/9" }}>
         <div className="absolute inset-0 flex items-center justify-center">
@@ -139,15 +124,7 @@ export const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
 
   return (
     <div className="relative w-full bg-black rounded-xl overflow-hidden" style={{ aspectRatio: "16/9" }}>
-      <iframe
-        ref={iframeRef}
-        src={embedUrl}
-        className="absolute inset-0 w-full h-full"
-        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-        allowFullScreen
-        title="YouTube Player"
-        onLoad={handleLoad}
-      />
+      <div ref={boxRef} className="absolute inset-0 w-full h-full" />
     </div>
   );
 };

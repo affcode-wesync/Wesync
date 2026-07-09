@@ -21,6 +21,8 @@ export const Watch: React.FC = () => {
   const [copied, setCopied] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const fullscreenContainerRef = useRef<HTMLDivElement>(null);
+  const [chatHeight, setChatHeight] = useState(35);
+  const chatDragRef = useRef<{ startY: number; startH: number } | null>(null);
 
   const {
     socket,
@@ -48,6 +50,8 @@ export const Watch: React.FC = () => {
     participants,
     myParticipantId,
   });
+
+  const isLeader = myParticipantId === leaderId;
 
   useEffect(() => {
     if (nickname && roomId && connected) {
@@ -129,6 +133,23 @@ export const Watch: React.FC = () => {
     return () => document.removeEventListener("fullscreenchange", handler);
   }, []);
 
+  const handleChatDragStart = useCallback((e: React.TouchEvent) => {
+    e.preventDefault();
+    chatDragRef.current = { startY: e.touches[0].clientY, startH: chatHeight };
+  }, [chatHeight]);
+
+  const handleChatDragMove = useCallback((e: React.TouchEvent) => {
+    if (!chatDragRef.current) return;
+    const dy = chatDragRef.current.startY - e.touches[0].clientY;
+    const vh = window.innerHeight;
+    const newH = Math.max(15, Math.min(70, chatDragRef.current.startH + (dy / vh) * 100));
+    setChatHeight(newH);
+  }, []);
+
+  const handleChatDragEnd = useCallback(() => {
+    chatDragRef.current = null;
+  }, []);
+
   if (!nickname) {
     return (
       <NicknameModal
@@ -142,14 +163,16 @@ export const Watch: React.FC = () => {
 
   const playerContent = (
     <>
-      <div className="mb-3 md:mb-4 relative">
-        <VideoInput onLoadVideo={handleLoadVideo} />
-        {copied && (
-          <div className="absolute -top-8 right-0 px-3 py-1 bg-green-600 text-white text-xs rounded-lg">
-            Ссылка скопирована!
-          </div>
-        )}
-      </div>
+      {isLeader && (
+        <div className="mb-3 md:mb-4 relative">
+          <VideoInput onLoadVideo={handleLoadVideo} />
+          {copied && (
+            <div className="absolute -top-8 right-0 px-3 py-1 bg-green-600 text-white text-xs rounded-lg">
+              Ссылка скопирована!
+            </div>
+          )}
+        </div>
+      )}
       <ResizablePlayer onFullscreen={toggleFullscreen}>
         <YouTubePlayer
           videoState={videoState}
@@ -184,13 +207,26 @@ export const Watch: React.FC = () => {
         onLeave={handleLeave}
       />
 
-      {/* Mobile: chat on top, video below */}
+      {/* Mobile: resizable chat on top, video below */}
       <div className="md:hidden flex flex-col flex-1 overflow-hidden">
-        <div className="h-[40%] min-h-[200px] border-b border-dark-600 flex flex-col bg-dark-800">
-          <Chat messages={chat} onSend={sendMessage} onSendImage={sendImage} myNickname={nickname} />
+        <div
+          className="border-b border-dark-600 flex flex-col bg-dark-800 overflow-hidden"
+          style={{ height: `${chatHeight}%` }}
+        >
+          <div
+            onTouchStart={handleChatDragStart}
+            onTouchMove={handleChatDragMove}
+            onTouchEnd={handleChatDragEnd}
+            className="flex items-center justify-center py-1 cursor-grab active:cursor-grabbing touch-none"
+          >
+            <div className="w-8 h-1 bg-dark-500 rounded-full" />
+          </div>
+          <div className="flex-1 overflow-hidden">
+            <Chat messages={chat} onSend={sendMessage} onSendImage={sendImage} myNickname={nickname} />
+          </div>
         </div>
         <div className="flex-1 flex flex-col overflow-hidden">
-          <div className="flex-1 flex items-center justify-center p-3 overflow-auto" ref={fullscreenContainerRef}>
+          <div className="flex-1 flex items-center justify-center p-2 overflow-auto" ref={fullscreenContainerRef}>
             <div className="w-full">{playerContent}</div>
           </div>
         </div>

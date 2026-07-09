@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useCallback } from "react";
+import React, { useEffect, useRef } from "react";
 import { VideoState } from "../types";
 
 interface YouTubePlayerProps {
@@ -9,35 +9,23 @@ interface YouTubePlayerProps {
   onStateChange?: () => void;
 }
 
-let apiLoaded = false;
-let apiReadyPromise: Promise<void> | null = null;
-
-function loadYouTubeAPI(): Promise<void> {
-  if (apiLoaded) return Promise.resolve();
-  if (apiReadyPromise) return apiReadyPromise;
-
-  apiReadyPromise = new Promise((resolve) => {
-    if (window.YT && window.YT.Player) {
-      apiLoaded = true;
-      resolve();
-      return;
-    }
-
-    window.onYouTubeIframeAPIReady = () => {
-      apiLoaded = true;
-      resolve();
-    };
-
-    const tag = document.createElement("script");
-    tag.src = "https://www.youtube.com/iframe_api";
-    document.head.appendChild(tag);
-  });
-
-  return apiReadyPromise;
-}
-
 function isValidVideoId(id: string): boolean {
   return /^[a-zA-Z0-9_-]{11}$/.test(id);
+}
+
+function getEmbedUrl(videoId: string, startTime: number): string {
+  const params = new URLSearchParams({
+    autoplay: "0",
+    controls: "1",
+    modestbranding: "1",
+    rel: "0",
+    enablejsapi: "1",
+    origin: window.location.origin,
+  });
+  if (startTime > 0) {
+    params.set("start", Math.floor(startTime).toString());
+  }
+  return `https://www.youtube.com/embed/${videoId}?${params.toString()}`;
 }
 
 export const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
@@ -47,133 +35,42 @@ export const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
   onSeek,
   onStateChange,
 }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const playerRef = useRef<any>(null);
-  const isRemoteUpdate = useRef(false);
-  const lastState = useRef<number>(-1);
-  const callbacksRef = useRef({ onPlay, onPause, onSeek, onStateChange });
-  callbacksRef.current = { onPlay, onPause, onSeek, onStateChange };
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const lastVideoId = useRef<string>("");
+  const lastState = useRef<string>("");
 
   useEffect(() => {
-    let destroyed = false;
-
-    async function init() {
-      if (!containerRef.current || playerRef.current) return;
-
-      await loadYouTubeAPI();
-
-      if (destroyed || !containerRef.current || !window.YT?.Player) return;
-
+    const handler = (e: MessageEvent) => {
+      if (typeof e.data !== "string") return;
       try {
-        const player = new window.YT.Player(containerRef.current, {
-          playerVars: {
-            autoplay: 0,
-            controls: 1,
-            modestbranding: 1,
-            rel: 0,
-          },
-          events: {
-            onReady: () => {
-              onStateChange?.();
-            },
-            onStateChange: (event: any) => {
-              const p = event.target;
-              const state = p.getPlayerState();
-              const currentTime = p.getCurrentTime();
-              const cb = callbacksRef.current;
+        const data = JSON.parse(e.data);
+        if (data.event === "infoDelivery" && data.info?.playerState !== undefined) {
+          const state = data.info.playerState;
+          const currentTime = data.info.currentTime || 0;
 
-              if (isRemoteUpdate.current) {
-                isRemoteUpdate.current = false;
-                lastState.current = state;
-                return;
-              }
-
-              if (state === 1 && lastState.current !== 1) {
-                cb.onPlay(currentTime);
-              } else if (state === 2 && lastState.current === 1) {
-                cb.onPause(currentTime);
-              }
-
-              lastState.current = state;
-              cb.onStateChange?.();
-            },
-            onError: (event: any) => {
-              console.error("YouTube player error:", event.data);
-            },
-          },
-        });
-
-        if (!destroyed) {
-          playerRef.current = player;
-        } else {
-          try { player.destroy(); } catch {}
+          if (state === 1 && lastState.current !== "1") {
+            onPlay(currentTime);
+          } else if (state === 2 && lastState.current === "1") {
+            onPause(currentTime);
+          }
+          lastState.current = String(state);
+          onStateChange?.();
         }
-      } catch (err) {
-        console.error("Failed to create YouTube player:", err);
-      }
-    }
-
-    init();
-
-    return () => {
-      destroyed = true;
-      if (playerRef.current) {
-        try { playerRef.current.destroy(); } catch {}
-        playerRef.current = null;
-      }
+      } catch {}
     };
-  }, []);
 
-  useEffect(() => {
-    const player = playerRef.current;
-    if (!player || !player.getVideoData || !player.loadVideoById) return;
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, [onPlay, onPause, onSeek, onStateChange]);
 
-    try {
-      const currentId = player.getVideoData()?.video_id || "";
-      if (isValidVideoId(videoState.videoId) && videoState.videoId !== currentId) {
-        isRemoteUpdate.current = true;
-        player.loadVideoById(videoState.videoId);
-      }
-    } catch (err) {
-      console.error("loadVideoById failed:", err);
-    }
-  }, [videoState.videoId]);
+  const embedUrl = isValidVideoId(videoState.videoId)
+    ? getEmbedUrl(videoState.videoId, videoState.currentTime)
+    : "";
 
-  useEffect(() => {
-    const player = playerRef.current;
-    if (!player || !player.getCurrentTime) return;
-
-    try {
-      const currentTime = player.getCurrentTime();
-      const timeDiff = Math.abs(currentTime - videoState.currentTime);
-      if (timeDiff > 1.5) {
-        isRemoteUpdate.current = true;
-        player.seekTo(videoState.currentTime, true);
-      }
-    } catch {}
-  }, [videoState.currentTime]);
-
-  useEffect(() => {
-    const player = playerRef.current;
-    if (!player || !player.getPlayerState) return;
-
-    try {
-      const state = player.getPlayerState();
-      if (videoState.isPlaying && state !== 1) {
-        isRemoteUpdate.current = true;
-        player.playVideo();
-      } else if (!videoState.isPlaying && state === 1) {
-        isRemoteUpdate.current = true;
-        player.pauseVideo();
-      }
-    } catch {}
-  }, [videoState.isPlaying]);
-
-  return (
-    <div className="relative w-full bg-black rounded-xl overflow-hidden" style={{ aspectRatio: "16/9" }}>
-      <div ref={containerRef} className="absolute inset-0 w-full h-full" />
-      {!videoState.videoId && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+  if (!isValidVideoId(videoState.videoId)) {
+    return (
+      <div className="relative w-full bg-black rounded-xl overflow-hidden" style={{ aspectRatio: "16/9" }}>
+        <div className="absolute inset-0 flex items-center justify-center">
           <div className="text-center text-gray-400">
             <svg className="w-16 h-16 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
@@ -183,7 +80,20 @@ export const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
             <p className="text-sm mt-1">Вставьте ссылку на YouTube выше</p>
           </div>
         </div>
-      )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative w-full bg-black rounded-xl overflow-hidden" style={{ aspectRatio: "16/9" }}>
+      <iframe
+        ref={iframeRef}
+        src={embedUrl}
+        className="absolute inset-0 w-full h-full"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowFullScreen
+        title="YouTube Player"
+      />
     </div>
   );
 };

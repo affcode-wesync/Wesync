@@ -86,26 +86,32 @@ export const Watch: React.FC = () => {
 
   const handlePlay = useCallback(
     (currentTime: number) => {
-      sendPlay(currentTime);
+      if (isLeader) {
+        sendPlay(currentTime);
+      }
       setVideoState((prev) => ({ ...prev, isPlaying: true, currentTime }));
     },
-    [sendPlay, setVideoState]
+    [isLeader, sendPlay, setVideoState]
   );
 
   const handlePause = useCallback(
     (currentTime: number) => {
-      sendPause(currentTime);
+      if (isLeader) {
+        sendPause(currentTime);
+      }
       setVideoState((prev) => ({ ...prev, isPlaying: false, currentTime }));
     },
-    [sendPause, setVideoState]
+    [isLeader, sendPause, setVideoState]
   );
 
   const handleSeek = useCallback(
     (currentTime: number) => {
-      sendSeek(currentTime);
+      if (isLeader) {
+        sendSeek(currentTime);
+      }
       setVideoState((prev) => ({ ...prev, currentTime }));
     },
-    [sendSeek, setVideoState]
+    [isLeader, sendSeek, setVideoState]
   );
 
   const toggleFullscreen = useCallback(async () => {

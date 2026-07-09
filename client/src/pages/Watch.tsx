@@ -1,8 +1,9 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useSocket } from "../hooks/useSocket";
 import { useVoiceChat } from "../hooks/useVoiceChat";
 import { YouTubePlayer } from "../components/YouTubePlayer";
+import { ResizablePlayer } from "../components/ResizablePlayer";
 import { VideoInput } from "../components/VideoInput";
 import { Chat } from "../components/Chat";
 import { Participants } from "../components/Participants";
@@ -18,6 +19,8 @@ export const Watch: React.FC = () => {
     return localStorage.getItem("wesync-nickname");
   });
   const [copied, setCopied] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const fullscreenContainerRef = useRef<HTMLDivElement>(null);
 
   const {
     socket,
@@ -101,6 +104,35 @@ export const Watch: React.FC = () => {
     [sendSeek, setVideoState]
   );
 
+  const toggleFullscreen = useCallback(async () => {
+    if (!isFullscreen) {
+      try {
+        const el = fullscreenContainerRef.current;
+        if (el?.requestFullscreen) {
+          await el.requestFullscreen();
+          setIsFullscreen(true);
+        }
+      } catch (err) {
+        console.error("Fullscreen failed:", err);
+      }
+    } else {
+      try {
+        if (document.fullscreenElement) {
+          await document.exitFullscreen();
+          setIsFullscreen(false);
+        }
+      } catch {}
+    }
+  }, [isFullscreen]);
+
+  useEffect(() => {
+    const handler = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener("fullscreenchange", handler);
+    return () => document.removeEventListener("fullscreenchange", handler);
+  }, []);
+
   if (!nickname) {
     return (
       <NicknameModal
@@ -109,6 +141,43 @@ export const Watch: React.FC = () => {
           setNickname(nick);
         }}
       />
+    );
+  }
+
+  const playerContent = (
+    <>
+      <div className="mb-4 relative">
+        <VideoInput onLoadVideo={handleLoadVideo} />
+        {copied && (
+          <div className="absolute -top-8 right-0 px-3 py-1 bg-green-600 text-white text-xs rounded-lg">
+            Ссылка скопирована!
+          </div>
+        )}
+      </div>
+      <ResizablePlayer onFullscreen={toggleFullscreen}>
+        <YouTubePlayer
+          videoState={videoState}
+          onPlay={handlePlay}
+          onPause={handlePause}
+          onSeek={handleSeek}
+        />
+      </ResizablePlayer>
+      <div className="mt-4 flex items-center justify-between">
+        <VoiceChat isMuted={isMuted} onToggleMute={toggleMute} />
+        <div className="text-gray-500 text-sm">
+          {videoState.isPlaying ? "▶ Воспроизведение" : "⏸ Пауза"}
+        </div>
+      </div>
+    </>
+  );
+
+  if (isFullscreen) {
+    return (
+      <div ref={fullscreenContainerRef} className="h-screen w-screen bg-dark-900 flex items-center justify-center p-6">
+        <div className="w-full max-w-7xl">
+          {playerContent}
+        </div>
+      </div>
     );
   }
 
@@ -137,28 +206,9 @@ export const Watch: React.FC = () => {
 
         {/* Right: Video + Controls */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          <div className="flex-1 flex items-center justify-center p-6">
+          <div className="flex-1 flex items-center justify-center p-6 overflow-auto" ref={fullscreenContainerRef}>
             <div className="w-full max-w-5xl">
-              <div className="mb-4 relative">
-                <VideoInput onLoadVideo={handleLoadVideo} />
-                {copied && (
-                  <div className="absolute -top-8 right-0 px-3 py-1 bg-green-600 text-white text-xs rounded-lg">
-                    Ссылка скопирована!
-                  </div>
-                )}
-              </div>
-              <YouTubePlayer
-                videoState={videoState}
-                onPlay={handlePlay}
-                onPause={handlePause}
-                onSeek={handleSeek}
-              />
-              <div className="mt-4 flex items-center justify-between">
-                <VoiceChat isMuted={isMuted} onToggleMute={toggleMute} />
-                <div className="text-gray-500 text-sm">
-                  {videoState.isPlaying ? "▶ Воспроизведение" : "⏸ Пауза"}
-                </div>
-              </div>
+              {playerContent}
             </div>
           </div>
         </div>

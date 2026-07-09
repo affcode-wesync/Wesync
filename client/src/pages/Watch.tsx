@@ -20,7 +20,6 @@ export const Watch: React.FC = () => {
   });
   const [copied, setCopied] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [showChat, setShowChat] = useState(false);
   const fullscreenContainerRef = useRef<HTMLDivElement>(null);
 
   const {
@@ -185,51 +184,33 @@ export const Watch: React.FC = () => {
         onLeave={handleLeave}
       />
 
-      {/* Mobile: toggle chat */}
-      <div className="md:hidden flex border-b border-dark-600 bg-dark-800">
-        <button
-          onClick={() => setShowChat(false)}
-          className={`flex-1 py-2 text-sm font-medium transition-colors ${!showChat ? "text-white border-b-2 border-accent" : "text-gray-400"}`}
-        >
-          Видео
-        </button>
-        <button
-          onClick={() => setShowChat(true)}
-          className={`flex-1 py-2 text-sm font-medium transition-colors ${showChat ? "text-white border-b-2 border-accent" : "text-gray-400"}`}
-        >
-          Чат ({chat.length})
-        </button>
+      {/* Mobile: chat on top, video below */}
+      <div className="md:hidden flex flex-col flex-1 overflow-hidden">
+        <div className="h-[40%] min-h-[200px] border-b border-dark-600 flex flex-col bg-dark-800">
+          <Chat messages={chat} onSend={sendMessage} onSendImage={sendImage} myNickname={nickname} />
+        </div>
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <div className="flex-1 flex items-center justify-center p-3 overflow-auto" ref={fullscreenContainerRef}>
+            <div className="w-full">{playerContent}</div>
+          </div>
+        </div>
       </div>
 
-      <div className="flex-1 flex overflow-hidden">
-        {/* Chat sidebar - desktop always, mobile toggle */}
-        <div className={`${showChat ? "flex" : "hidden"} md:flex w-full md:w-80 border-r border-dark-600 flex-col bg-dark-800 absolute md:relative inset-0 z-20 md:z-0`}>
-          <div className="hidden md:block">
-            <Participants
-              participants={participants}
-              leaderId={leaderId}
-              myParticipantId={myParticipantId}
-              speakingMap={speakingMap}
-            />
-          </div>
+      {/* Desktop: sidebar chat, main video */}
+      <div className="hidden md:flex flex-1 flex overflow-hidden">
+        <div className="w-80 border-r border-dark-600 flex flex-col bg-dark-800">
+          <Participants
+            participants={participants}
+            leaderId={leaderId}
+            myParticipantId={myParticipantId}
+            speakingMap={speakingMap}
+          />
           <div className="flex-1 overflow-hidden">
             <Chat messages={chat} onSend={sendMessage} onSendImage={sendImage} myNickname={nickname} />
           </div>
         </div>
-
-        {/* Video + Controls */}
-        <div className={`${!showChat ? "flex" : "hidden"} md:flex flex-1 flex-col overflow-hidden`}>
-          {/* Desktop participants */}
-          <div className="hidden md:block">
-            <Participants
-              participants={participants}
-              leaderId={leaderId}
-              myParticipantId={myParticipantId}
-              speakingMap={speakingMap}
-            />
-          </div>
-
-          <div className="flex-1 flex items-center justify-center p-3 md:p-6 overflow-auto" ref={fullscreenContainerRef}>
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <div className="flex-1 flex items-center justify-center p-6 overflow-auto" ref={fullscreenContainerRef}>
             <div className="w-full max-w-5xl">{playerContent}</div>
           </div>
         </div>
